@@ -34,6 +34,7 @@ def scrapeRestaurantInfo(url):
     avgRating = soup.find('span', class_='r2Cf69qf').text.strip()
     storeAddress = soup.find('div', class_= '_2vbD36Hr _36TL14Jn').find('span', class_='_2saB_OSe').text.strip()
     noReviews = soup.find('a', class_='_10Iv7dOs').text.strip().split()[0]
+    print(storeName)
     with open(pathToStoreInfo, mode='a', encoding="utf-8") as trip:
         data_writer = csv.writer(trip, delimiter = ',', quotechar = '"', quoting = csv.QUOTE_MINIMAL)
         data_writer.writerow([storeName, storeAddress, avgRating, noReviews])
@@ -53,7 +54,11 @@ if args.many:
 else:
     urls = [startingUrl]
 
-driver = webdriver.Chrome('chromedriver.exe')
+# driver_path=r"C:\Users\Cyprien\OneDrive - De Vinci\Documents\ESILV\A5\Machine_Learning_NLP\Project2\nlp-project\chromedriver.exe"
+# driver = webdriver.Chrome(executable_path=driver_path)
+
+
+driver = webdriver.Edge('msedgedriver.exe')
 for url in urls:
     print(url)
     #if you want to scrape restaurants info
