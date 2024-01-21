@@ -2,7 +2,8 @@ import streamlit as st
 import joblib
 import numpy as np
 import pandas as pd
-from restaurant_similarity import get_top_restaurants
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 
 # Load the trained models from the notebook
@@ -51,6 +52,24 @@ def process_text(text):
     
     return processed_text
 
+# Function to get top restaurants from a query 
+
+def get_top_restaurants(query, restaurant_df, top_n=5):
+    # Use TF-IDF vectorization to represent the restaurants' information and the query
+    vectorizer = TfidfVectorizer()
+    corpus = restaurant_df['Information'].fillna('') + [query]
+    tfidf_matrix = vectorizer.fit_transform(corpus)
+
+    # Calculate cosine similarity between the query and each restaurant
+    similarities = cosine_similarity(tfidf_matrix[-1], tfidf_matrix[:-1])
+
+    # Get the indices of top N similar restaurants
+    top_indices = similarities.argsort()[0][::-1][:top_n]
+
+    # Get the top N similar restaurants with the highest average rating
+    top_restaurants = restaurant_df.iloc[top_indices].sort_values(by='Average Rating', ascending=False).head(top_n)
+
+    return top_restaurants
 
 # Streamlit app
 st.title("Review and Restaurant Information")
