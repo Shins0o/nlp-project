@@ -3,15 +3,59 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity 
+import os
+from nltk import FreqDist, ngrams
+from nltk.tokenize import word_tokenize
+from nltk.stem import PorterStemmer
+from nltk.corpus import stopwords
+import nltk
+import string
+from nltk.corpus import wordnet
+from textblob import TextBlob
+from sumy.parsers.plaintext import PlaintextParser
+from sumy.nlp.tokenizers import Tokenizer
+from sumy.summarizers.lsa import LsaSummarizer
+from gensim import corpora
+from gensim.models import LdaModel
+from gensim.models import Word2Vec
+from sklearn.manifold import TSNE
+import numpy as np
+import matplotlib.pyplot as plt
 from sklearn.metrics.pairwise import cosine_similarity
+from tqdm import tqdm
+import io
+from tensorflow import summary
+from sklearn.metrics.pairwise import linear_kernel
+nltk.download('punkt')
+nltk.download('stopwords')
+import emoji
 
 
 # Load the trained models from the notebook
 rating_model = joblib.load("rating_model.pkl")
-sentiment_model = joblib.load("sentiment_model.pkl")
+#sentiment_model = joblib.load("sentiment_model.pkl")
 
 # Load dataframe to access to restaurant names
-df = pd.read_csv('restaurant_uk_reviews_v3.csv')
+df = pd.read_csv('preprocessed_data_250_each.csv')
+
+# Function to handle negation using WordNet
+def handle_negation(sentence):
+    result_sentence = list(sentence)
+    
+    for i in range(len(result_sentence)):
+        if result_sentence[i - 1] in ['not', "n't"]:
+            antonyms = []
+            for syn in wordnet.synsets(result_sentence[i]):
+                for l in syn.lemmas():
+                    if l.antonyms():
+                        antonyms.append(l.antonyms()[0].name())
+
+            if antonyms:
+                result_sentence[i] = antonyms[0]
+
+    result_sentence = [word for word in result_sentence if word != '']
+    return result_sentence
 
 
 # Preprocessing definition 
@@ -71,13 +115,51 @@ def get_top_restaurants(query, restaurant_df, top_n=5):
 
     return top_restaurants
 
+def question_answer(user_query):
+    # Colonnes à utiliser pour la recherche de texte
+    text_columns = ['Information', 'Processed Review Title', 'Processed Review Text']
+
+    # Fonction de tokenisation
+    def tokenize(text):
+        return word_tokenize(text.lower())  # Ajoutez ici d'autres étapes de prétraitement si nécessaire
+
+    # Agréger les avis et les Average Rating pour chaque restaurant
+    aggregated_reviews = df.groupby('Restaurant Name')[text_columns + ['Average Rating']].agg(lambda x: ' '.join(x.dropna()) if x.name in text_columns else x.mean()).reset_index()
+
+    # Concaténer les colonnes de texte pour construire les documents
+    aggregated_reviews['Combined_Text'] = aggregated_reviews[text_columns].apply(lambda x: ' '.join(x), axis=1)
+
+    # Appliquer la tokenisation aux documents
+    aggregated_reviews['Combined_Text_Tokenized'] = aggregated_reviews['Combined_Text'].apply(tokenize)
+
+    # Appliquer la tokenisation à la requête de l'utilisateur
+    user_query_tokenized = tokenize(user_query)
+
+    # Utiliser TF-IDF pour vectoriser les documents
+    tfidf_vectorizer = TfidfVectorizer(stop_words='english')
+    tfidf_matrix = tfidf_vectorizer.fit_transform(aggregated_reviews['Combined_Text_Tokenized'].apply(lambda x: ' '.join(x)))
+
+    # Vectoriser la requête de l'utilisateur
+    user_query_vector = tfidf_vectorizer.transform([' '.join(user_query_tokenized)])
+
+    # Calculer la similarité cosine entre la requête de l'utilisateur et tous les documents
+    cosine_similarities = linear_kernel(user_query_vector, tfidf_matrix).flatten()
+
+    # Pondérer la similarité cosine par l'Average Rating
+    weighted_similarities = cosine_similarities * aggregated_reviews['Average Rating'].values
+
+    # Obtenir les indices des restaurants les plus similaires (top 5)
+    top_indices = weighted_similarities.argsort()[:-6:-1]
+
+    # Afficher les informations des restaurants les plus similaires
+    top_restaurants = aggregated_reviews.loc[top_indices, ['Restaurant Name', 'Information', 'Average Rating']]
+    return top_restaurants
+
 # Streamlit app
 st.title("Review and Restaurant Information")
 
 selected_option = st.selectbox("Select an option:", ["Give a review to a restaurant", "Find restaurants"])
 
-# User input for review text
-review_text = st.text_area("Enter your review text:")
 
 if selected_option == "Give a review to a restaurant":
     # Option 1: Give a review to a restaurant
@@ -92,14 +174,12 @@ if selected_option == "Give a review to a restaurant":
         if not review_text:
             st.warning("Please enter a review text.")
         else:
-            # Make predictions for rating and sentiment
+            # Make predictions for rating
             processed_text = process_text(review_text)
             rating_prediction = rating_model.predict([review_text])[0]
-            sentiment_prediction = sentiment_model.predict([review_text])[0]
 
             # Display predictions
             st.success(f"Predicted Rating: {rating_prediction}")
-            st.success(f"Predicted Sentiment: {'Positive' if sentiment_prediction == 1 else 'Negative'}")
 
 
 elif selected_option == "Find restaurants":
@@ -115,5 +195,5 @@ elif selected_option == "Find restaurants":
             st.warning("Please enter a search query.")
         else:
             # Find top restaurants based on the closest distance using NLP
-            top_restaurants = get_top_restaurants(search_query, df)
+            top_restaurants = question_answer(search_query)
             st.table(top_restaurants)
